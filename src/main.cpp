@@ -1,13 +1,16 @@
 #include <Arduino.h>
 #include <NewPing.h>
 
+
+#define PIN_PIR_SHOWER 23
+#define DELAY_PING_SENSOR_SHOWER 2000 // Miliseconds..Set le timer between pings read sensor Shower
+
 #define SONAR_NUM     4 // Number of sensors.
 
 #define TRIGGER_PIN_SHOWER 22
 #define ECHO_PIN_SHOWER 24
 #define MAX_DISTANCE_SHOWER 200
 #define LED_SHOWER 13
-#define DELAY_PING_SONAR_SHOWER 2000 // Miliseconds..Set le timer between pings read sensor Shower
 
 
 #define MAX_DISTANCE_TOILET 200
@@ -42,12 +45,15 @@ const int pino = 13;
 
 void oneSensorCycle();
 void echoCheck();
-
-
+void readShower();
 
 void setup() {
   timerSensorShower = millis();
   Serial.begin(9600);
+
+  //INPUTS
+  pinMode(PIN_PIR_SHOWER, INPUT);
+
   pinMode(LED_SHOWER, OUTPUT);
 
   pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
@@ -57,13 +63,15 @@ void setup() {
 }
 void loop() {
 
+  readShower();
+
   for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through all the sensors.
     if (millis() >= pingTimer[i]) {         // Is it this sensor's time to ping?
       pingTimer[i] += PING_INTERVAL * SONAR_NUM;  // Set next time this sensor will be pinged.
-      Serial.print("pingTimer[");
-      Serial.print(i);
-      Serial.print("]: ");
-      Serial.println(pingTimer[i]);
+      // Serial.print("pingTimer[");
+      // Serial.print(i);
+      // Serial.print("]: ");
+      // Serial.println(pingTimer[i]);
       if (i == 0 && currentSensor == SONAR_NUM - 1) oneSensorCycle(); // Sensor ping cycle complete, do something with the results.
       sonar[currentSensor].timer_stop();          // Make sure previous timer is canceled before starting a new ping (insurance).
       currentSensor = i;                          // Sensor being accessed.
@@ -90,19 +98,28 @@ void oneSensorCycle() { // Sensor ping cycle complete, do something with the res
     switch (i)
     {
       case SONAR_SHOWER:
-        if (millis() - timerSensorShower > DELAY_PING_SONAR_SHOWER){
-          if (cm[i])
-              digitalWrite(LED_SHOWER,HIGH);
-          else
-            { 
-              digitalWrite(LED_SHOWER,LOW );
-            }
-          timerSensorShower = millis();
-        }
-        break;
+        if (cm[i])
+        //   digitalWrite(LED_SHOWER,HIGH);
+        // else
+        //   digitalWrite(LED_SHOWER,LOW );        
+        // break;
         default:
           break;
     }        
   }
   Serial.println();
+}
+
+void readShower(){
+  //if (millis() - timerSensorShower > DELAY_PING_SENSOR_SHOWER){
+    if ( digitalRead(PIN_PIR_SHOWER) ){
+      digitalWrite(LED_SHOWER,HIGH);
+      Serial.println( "PRESENÇA CHUVEIRO DETECTADA"); 
+    }
+    else
+      { 
+        digitalWrite(LED_SHOWER,LOW );
+    }
+  //timerSensorShower = millis();
+  //}
 }
