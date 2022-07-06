@@ -11,6 +11,11 @@ const bool led_rgb_door_anodo_comum = false;
 #define PIN_RGB_DOOR_G 11
 #define PIN_RGB_DOOR_B 10
 
+// const int  PIN_RGB_DOOR_R = 12;
+// const int  PIN_RGB_DOOR_G = 11;
+// const int  PIN_RGB_DOOR_B = 10;
+
+
 #define SONAR_NUM     4 // Number of sensors.
 #define TRIGGER_PIN_SHOWER 22
 
@@ -24,13 +29,17 @@ const bool led_rgb_door_anodo_comum = false;
 #define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
 #define PING_INTERVAL 33 // Milliseconds between sensor pings (29ms is about the min to avoid cross-sensor echo).
 
+enum bath_state{ BATH_OFF,
+                 BATH_ON };
+
 enum sonars {  SONAR_SHOWER
               ,SONAR_TOILET
               ,SONAR_ENTRY
               ,SONAR_EXIT };
 
-enum door_state{ DOOR_OPEN
-                ,DOOR_CLOSED
+enum door_state{ DOOR_UNLOCKED = 1
+                ,DOOR_LOCKED = 2
+                ,DOOR_OFF = 3
 };
 
 unsigned long pingTimer[SONAR_NUM]; // Holds the times when the next ping should happen for each sensor.
@@ -45,113 +54,188 @@ NewPing sonar[SONAR_NUM] = {     // Sensor object array.
   NewPing(7, 6, MAX_DISTANCE),
   NewPing(5, 4, MAX_DISTANCE)
 };
-
-class door
-{
-  private:
-    int state;
-    /* data */
-  public:
-    door( int state = DOOR_OPEN){
-      this->state = state;
-    };
-
-    void update_status(){
-    }
-};
-
-class ledRgb
+//*************************************************
+// Class LedRgb
+//*************************************************
+// LedRGB Declarations
+class LedRgb
 {
   private:
     int pinR, pinG, pinB;
-    bool led_rgb_door_anodo_comum;
+    bool _ledRgbDoorAnodoComum;
 
   public:
-    ledRgb(int pinPwmR, int pinPwmG, int pinPwmB, bool led_rgb_door_anodo_comum = false){
-      pinR = pinPwmR;
-      pinG = pinPwmG;
-      pinB = pinPwmB;
-    };
-
-    void setup(){
-        pinMode(pinR, OUTPUT);
-        pinMode(pinG, OUTPUT);
-        pinMode(pinB, OUTPUT);
-    }
-
-    void test(int timerIntervalTest = 500){
-      setColorRed();
-      delay(timerIntervalTest);
-      off();
-      delay(timerIntervalTest);
-      setColorGreen();
-      delay(timerIntervalTest);
-      off();
-      delay(timerIntervalTest);
-      setColorBlue();
-      delay(timerIntervalTest);
-      off();
-    }
-
-    void setColor( int red, int green, int blue ){
-      if (led_rgb_door_anodo_comum){
-        red = 255 - red;
-        green = 255 - green;
-        blue = 255 - blue;
-      }
-      analogWrite(pinR, red);
-      analogWrite(pinG, green);
-      analogWrite(pinB, blue);
-    }
-
-    void setColorGreen (){
-      setColor(0,255,0);
-    }
-
-    void setColorRed (){
-      setColor(255,0,0);
-    }
-
-    void setColorBlue (){
-      setColor(0,0,255);
-    }
-
-
-    void off(){
-      analogWrite(pinR, false);
-      analogWrite(pinG, false);
-      analogWrite(pinB, false);
-    }
-
+    LedRgb(int pinPwmR, int pinPwmG, int pinPwmB, bool led_rgb_door_anodo_comum = false);
+    void setup();
+    void test(int timerIntervalTest = 500);
+    void setColor( int red, int green, int blue );
+    void setColorGreen();
+    void setColorRed ();
+    void setColorBlue();
+    void off();
 };
+
+// LedRGB Implementation
+LedRgb::LedRgb(int pinPwmR, int pinPwmG, int pinPwmB, bool ledRgbDoorAnodoComum){
+  pinR = pinPwmR;
+  pinG = pinPwmG;
+  pinB = pinPwmB;
+  _ledRgbDoorAnodoComum = ledRgbDoorAnodoComum;
+
+}
+
+void LedRgb::setup(){
+  pinMode(pinR, OUTPUT);
+  pinMode(pinG, OUTPUT);
+  pinMode(pinB, OUTPUT);
+}
+
+void LedRgb::test(int timerIntervalTest){
+  setColorRed();
+  delay(timerIntervalTest);
+  off();
+  delay(timerIntervalTest);
+  setColorGreen();
+  delay(timerIntervalTest);
+  off();
+  delay(timerIntervalTest);
+  setColorBlue();
+  delay(timerIntervalTest);
+  off();
+}
+
+void LedRgb::setColor( int red, int green, int blue ){
+  if (_ledRgbDoorAnodoComum){
+    red = 255 - red;
+    green = 255 - green;
+    blue = 255 - blue;
+  }
+  analogWrite(pinR, red);
+  analogWrite(pinG, green);
+  analogWrite(pinB, blue);
+  Serial.print("setColor( ");
+  Serial.print(red);
+  Serial.print(", ");
+  Serial.print(green);
+  Serial.print(", ");
+  Serial.print(blue);
+  Serial.println(")");
+}
+
+void LedRgb::setColorGreen (){
+  Serial.println("SET COLOR GREEN");
+  this->setColor(0,255,0);
+}
+
+void LedRgb::setColorRed (){
+  Serial.println("SET COLOR RED");
+  setColor(255,0,0);
+}
+
+void LedRgb::setColorBlue (){
+  setColor(0,0,255);
+}
+
+void LedRgb::off(){
+  analogWrite(pinR, false);
+  analogWrite(pinG, false);
+  analogWrite(pinB, false);
+}
+
+//*************************************************
+// Class Door
+//*************************************************
+// Door Declarations
+class Door
+{
+  private:
+    LedRgb *_ledRgbDoor;
+    int _state;
+  public:
+    Door( LedRgb* ledRgbDoor , int doorState = DOOR_OFF);
+    void setState( int state );
+    void update();
+};
+
+// Door Implementation
+Door::Door( LedRgb* ledRgbDoor , int doorState){
+  _ledRgbDoor = ledRgbDoor;
+  _state = doorState;
+}
+
+void Door::setState( int state ){
+  _state = state;
+  Serial.print("SET STATE DOOR STATE RECEBIDO -> ");
+  Serial.println(state);
+  Serial.print("SET STATE DOOR STATE-> ");
+  Serial.println(_state);
+  this->update();
+}
+
+void Door::update(){
+  Serial.print("UPDATE DOOR STATE-> ");
+  Serial.println(_state);
+  if (this->_state == DOOR_UNLOCKED){
+    Serial.println( "UPDATE DOOR UNLOCKED");
+    _ledRgbDoor->setColorGreen();
+  } else if (_state == DOOR_LOCKED)
+  {
+    Serial.println( "UPDATE DOOR LOCKED");
+    _ledRgbDoor->setColorRed();
+  } else {
+    Serial.println( "UPDATE DOOR OFF");
+    _ledRgbDoor->off();
+  } 
+}
+
+// class bath
+// {
+// private:
+//   int state;
+//   door* bathDoor;
+// public:
+//   bath(door* bathDoor , int state = BATH_OFF){
+//     this->state = state;
+//   };
+
+//   int getBathState(){
+//     return this->state;
+//   }
+
+//   void setBathState(int state){
+//     this->state = state;
+//     Serial.println(this->state);
+
+//     if (this->state == BATH_ON){
+//       bathDoor->setState(DOOR_UNLOCKED);
+//     } else {
+//       bathDoor->setState(DOOR_OFF);
+//     }
+//   }
+// };
 
 void oneSensorCycle();
 void echoCheck();
 void readShower();
 
-ledRgb ledRgbDoor( PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum  );
+LedRgb *LedRgbDoor;
+Door *DoorBath;
+//bath smartBath(&doorBath);
 
 void setup() {
-  timerSensorShower = millis();
+
   Serial.begin(9600);
+  LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
+  DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
+
+  timerSensorShower = millis();
 
   //INPUTS
   pinMode(PIN_PIR_SHOWER, INPUT);
 
-
-  // OUTPUTS
-  //pinMode(LED_SHOWER, OUTPUT);
-  //pinMode(PIN_RGB_DOOR_R, OUTPUT);
-  //pinMode(PIN_RGB_DOOR_G, OUTPUT);
-  //pinMode(PIN_RGB_DOOR_B, OUTPUT);
-
-  ledRgbDoor.setup();
-  ledRgbDoor.test();
-  //ledRgbDoor.setColor(245,66,245);
-  //ledRgbDoor.setColor(255,0,0);
-
-
-
+  LedRgbDoor->setup();
+  LedRgbDoor->test();
+  
 
   pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
   for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
@@ -159,17 +243,28 @@ void setup() {
 
 }
 void loop() {
-
-  // Serial.print( "RGB: (");
-  // Serial.print( analogRead(PIN_RGB_DOOR_R));
-  // Serial.print( ", ");
-  // Serial.print( analogRead(PIN_RGB_DOOR_G));
-  // Serial.print( ", ");
-  // Serial.print( analogRead(PIN_RGB_DOOR_B));
-  // Serial.println( " )");
-
+  //LedRgbDoor->setColorRed();
+  delay(5000);
+  DoorBath->setState(DOOR_UNLOCKED);
   readShower();
-  ledRgbDoor.setColor(245,66,245);
+  delay(5000);
+  DoorBath->setState(DOOR_LOCKED);
+  delay(5000);
+  //smartBath.setBathState(BATH_ON);
+  //Serial.print("BATH STATE: ");
+  //Serial.println(smartBath.getBathState());
+  // doorBath.update();
+  //Serial.print("LOOP STATUS DOOR->");
+  //Serial.println(doorBath.state);
+  //LedRgbDoor.test();
+  //delay(3000);
+  //smartBath.setBathState(BATH_ON);
+  //Serial.print("BATH STATE: ");
+  //Serial.println(smartBath.getBathState());
+  //delay(3000);
+
+  // LedRgbDoor.setColor(245,66,245);
+
 
   for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through all the sensors.
     if (millis() >= pingTimer[i]) {         // Is it this sensor's time to ping?
