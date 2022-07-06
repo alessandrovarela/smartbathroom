@@ -244,29 +244,12 @@ void setup() {
 
 }
 void loop() {
-  //LedRgbDoor->setColorRed();
+  SmartBath->setBathState(BATH_OFF);
+  readShower();
   delay(5000);
-  // DoorBath->setState(DOOR_UNLOCKED);
   SmartBath->setBathState(BATH_ON);
   readShower();
   delay(5000);
-  // DoorBath->setState(DOOR_LOCKED);
-  SmartBath->setBathState(BATH_OFF);
-  delay(5000);
-  //smartBath.setBathState(BATH_ON);
-  //Serial.print("BATH STATE: ");
-  //Serial.println(smartBath.getBathState());
-  // doorBath.update();
-  //Serial.print("LOOP STATUS DOOR->");
-  //Serial.println(doorBath.state);
-  //LedRgbDoor.test();
-  //delay(3000);
-  //smartBath.setBathState(BATH_ON);
-  //Serial.print("BATH STATE: ");
-  //Serial.println(smartBath.getBathState());
-  //delay(3000);
-
-  // LedRgbDoor.setColor(245,66,245);
 
 
   for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through all the sensors.
@@ -318,9 +301,9 @@ void oneSensorCycle() { // Sensor ping cycle complete, do something with the res
 // SHOWER
 void readShower(){
   //if (millis() - timerSensorShower > DELAY_PING_SENSOR_SHOWER){
-    if ( digitalRead(PIN_PIR_SHOWER) ){
+    if ( digitalRead(PIN_PIR_SHOWER) && SmartBath->getBathState() == BATH_ON ){
       digitalWrite(LED_SHOWER,HIGH);
-      Serial.println( "PRESENÇA CHUVEIRO DETECTADA"); 
+      Serial.println( "PRESENCE DETECTED IN SHOWER"); 
     }
     else
       { 
