@@ -11,48 +11,45 @@ const bool led_rgb_door_anodo_comum = false;
 #define PIN_RGB_DOOR_G 11
 #define PIN_RGB_DOOR_B 10
 
-// const int  PIN_RGB_DOOR_R = 12;
-// const int  PIN_RGB_DOOR_G = 11;
-// const int  PIN_RGB_DOOR_B = 10;
 
+// SET SONARS
+#define SONAR_NUM     3 // Number of sensors.
+#define PING_INTERVAL_SONARS 29 // Milliseconds between sensor pings (29ms is about the min to avoid cross-sensor echo).
 
-#define SONAR_NUM     4 // Number of sensors.
-#define TRIGGER_PIN_SHOWER 22
+// PINS SONARS
+// sonar entry
+#define TRIGGER_PIN_ENTRY 22
+#define ECHO_PIN_ENTRY 25
+#define MAX_DISTANCE_ENTRY 30 // Maximum distance (in cm) to ping.
 
-#define ECHO_PIN_SHOWER 24
-#define MAX_DISTANCE_SHOWER 200
+// sonar exit
+#define TRIGGER_PIN_EXIT 27
+#define ECHO_PIN_EXIT 29
+#define MAX_DISTANCE_EXIT 30 // Maximum distance (in cm) to ping.
 
-#define MAX_DISTANCE_TOILET 200
-#define MAX_DISTANCE_ENTRY  50
-#define MAX_DISTANCE_EXIT   50
+// sonar toilet
+//#define TRIGGER_PIN_TOILET 22
+//#define ECHO_PIN_TOLIET 24
+//#define MAX_DISTANCE_TOLIET 200
 
-#define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
-#define PING_INTERVAL 33 // Milliseconds between sensor pings (29ms is about the min to avoid cross-sensor echo).
+unsigned long timerPingSonars;
 
 enum bath_state{ BATH_OFF,
                  BATH_ON };
 
-enum sonars {  SONAR_SHOWER
-              ,SONAR_TOILET
-              ,SONAR_ENTRY
-              ,SONAR_EXIT };
+enum sonars {  SONAR_ENTRY
+              ,SONAR_EXIT
+              ,SONAR_TOILET };
 
 enum door_state{ DOOR_UNLOCKED = 1
                 ,DOOR_LOCKED = 2
                 ,DOOR_OFF = 3
 };
 
-unsigned long pingTimer[SONAR_NUM]; // Holds the times when the next ping should happen for each sensor.
-unsigned int cm[SONAR_NUM];         // Where the ping distances are stored.
-uint8_t currentSensor = 0;          // Keeps track of which sensor is active.
-
-unsigned long timerSensorShower;
-
 NewPing sonar[SONAR_NUM] = {     // Sensor object array.
-  NewPing(TRIGGER_PIN_SHOWER, ECHO_PIN_SHOWER, MAX_DISTANCE_SHOWER), // Each sensor's trigger pin, echo pin, and max distance to ping.
-  NewPing(9, 8, MAX_DISTANCE),
-  NewPing(7, 6, MAX_DISTANCE),
-  NewPing(5, 4, MAX_DISTANCE)
+  NewPing(TRIGGER_PIN_ENTRY, ECHO_PIN_ENTRY, MAX_DISTANCE_ENTRY), // Each sensor's trigger pin, echo pin, and max distance to ping.
+  NewPing(TRIGGER_PIN_EXIT, ECHO_PIN_EXIT, MAX_DISTANCE_EXIT),
+  NewPing(0, 0, MAX_DISTANCE_EXIT)
 };
 //*************************************************
 // Class LedRgb
@@ -190,6 +187,11 @@ class Bath
 private:
   int _state;
   Door* _bathDoor;
+  int _numberPeople;
+  bool _entering_1;
+  bool _entering_2;
+  bool _going_out_1;
+  bool _going_out_2;
 public:
   Bath(Door* bathDoor , int state = BATH_OFF);
   int getBathState();
@@ -216,9 +218,9 @@ void Bath::setBathState(int state){
     Serial.println("SMART BATH OFF");
   }
 }
-void oneSensorCycle();
-void echoCheck();
+
 void readShower();
+void readSonars();
 
 LedRgb *LedRgbDoor;
 Door *DoorBath;
@@ -230,7 +232,7 @@ void setup() {
   LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
   DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
   SmartBath = new Bath(DoorBath);
-  // timerSensorShower = millis();
+  timerPingSonars = millis();
 
   //INPUTS
   pinMode(PIN_PIR_SHOWER, INPUT);
@@ -238,78 +240,46 @@ void setup() {
   LedRgbDoor->setup();
   LedRgbDoor->test();
   
-  pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
-  for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
-    pingTimer[i] = pingTimer[i - 1] + PING_INTERVAL;
+  //pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
+  //for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
+  //  pingTimer[i] = pingTimer[i - 1] + PING_INTERVAL;
 
 }
 void loop() {
-  SmartBath->setBathState(BATH_OFF);
+  //SmartBath->setBathState(BATH_OFF);
   readShower();
-  delay(5000);
-  SmartBath->setBathState(BATH_ON);
-  readShower();
-  delay(5000);
+  readSonars();
+  //delay(1000);
+  //SmartBath->setBathState(BATH_ON);
+  //readShower();
+  //delay(5000);
 
-
-  for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through all the sensors.
-    if (millis() >= pingTimer[i]) {         // Is it this sensor's time to ping?
-      pingTimer[i] += PING_INTERVAL * SONAR_NUM;  // Set next time this sensor will be pinged.
-      // Serial.print("pingTimer[");
-      // Serial.print(i);
-      // Serial.print("]: ");
-      // Serial.println(pingTimer[i]);
-      if (i == 0 && currentSensor == SONAR_NUM - 1) oneSensorCycle(); // Sensor ping cycle complete, do something with the results.
-      sonar[currentSensor].timer_stop();          // Make sure previous timer is canceled before starting a new ping (insurance).
-      currentSensor = i;                          // Sensor being accessed.
-      cm[currentSensor] = 0;                      // Make distance zero in case there's no ping echo for this sensor.
-      sonar[currentSensor].ping_timer(echoCheck); // Do the ping (processing continues, interrupt will call echoCheck to look for echo).
-    }
-  }
 
 }
-
-void echoCheck() { // If ping received, set the sensor distance to array.
-  if (sonar[currentSensor].check_timer())
-    cm[currentSensor] = sonar[currentSensor].ping_result / US_ROUNDTRIP_CM;
-}
-
-void oneSensorCycle() { // Sensor ping cycle complete, do something with the results.
-  // The following code would be replaced with your code that does something with the ping results.
-  for (uint8_t i = 0; i < SONAR_NUM; i++) {
-    //Serial.print(i);
-    //Serial.print("=");
-    //Serial.print(cm[i]);
-    //Serial.print("cm ");
-
-    switch (i)
-    {
-      case SONAR_SHOWER:
-        if (cm[i])
-        //   digitalWrite(LED_SHOWER,HIGH);
-        // else
-        //   digitalWrite(LED_SHOWER,LOW );        
-        // break;
-        default:
-          break;
-    }        
-  }
-  //Serial.println();
-}
-
 
 // SHOWER
 void readShower(){
-  //if (millis() - timerSensorShower > DELAY_PING_SENSOR_SHOWER){
     if ( digitalRead(PIN_PIR_SHOWER) && SmartBath->getBathState() == BATH_ON ){
       digitalWrite(LED_SHOWER,HIGH);
       Serial.println( "PRESENCE DETECTED IN SHOWER"); 
     }
     else
-      { 
+    { 
         digitalWrite(LED_SHOWER,LOW );
     }
-  //timerSensorShower = millis();
-  //}
+}
+
+void readSonars(){
+  if (millis() - timerPingSonars > PING_INTERVAL_SONARS){
+    for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through each sensor and display results.
+      //delay(50); // Wait 50ms between pings (about 20 pings/sec). 29ms should be the shortest delay between pings.
+      Serial.print(i);
+      Serial.print("=");
+      Serial.print(sonar[i].ping_cm());
+      Serial.print("cm ");
+    }
+    timerPingSonars = millis();
+    Serial.println();
+  }
 }
 
