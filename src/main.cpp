@@ -113,22 +113,22 @@ void LedRgb::setColor( int red, int green, int blue ){
   analogWrite(pinR, red);
   analogWrite(pinG, green);
   analogWrite(pinB, blue);
-  Serial.print("setColor( ");
-  Serial.print(red);
-  Serial.print(", ");
-  Serial.print(green);
-  Serial.print(", ");
-  Serial.print(blue);
-  Serial.println(")");
+  // Serial.print("setColor( ");
+  // Serial.print(red);
+  // Serial.print(", ");
+  // Serial.print(green);
+  // Serial.print(", ");
+  // Serial.print(blue);
+  // Serial.println(")");
 }
 
 void LedRgb::setColorGreen (){
-  Serial.println("SET COLOR GREEN");
+  //Serial.println("SET COLOR GREEN");
   this->setColor(0,255,0);
 }
 
 void LedRgb::setColorRed (){
-  Serial.println("SET COLOR RED");
+  //Serial.println("SET COLOR RED");
   setColor(255,0,0);
 }
 
@@ -165,70 +165,72 @@ Door::Door( LedRgb* ledRgbDoor , int doorState){
 
 void Door::setState( int state ){
   _state = state;
-  Serial.print("SET STATE DOOR STATE RECEBIDO -> ");
-  Serial.println(state);
-  Serial.print("SET STATE DOOR STATE-> ");
-  Serial.println(_state);
   this->update();
 }
-
 void Door::update(){
-  Serial.print("UPDATE DOOR STATE-> ");
-  Serial.println(_state);
-  if (this->_state == DOOR_UNLOCKED){
-    Serial.println( "UPDATE DOOR UNLOCKED");
+  if (_state == DOOR_UNLOCKED){
+    Serial.println( "DOOR UNLOCKED");
     _ledRgbDoor->setColorGreen();
   } else if (_state == DOOR_LOCKED)
   {
-    Serial.println( "UPDATE DOOR LOCKED");
+    Serial.println( "DOOR LOCKED");
     _ledRgbDoor->setColorRed();
   } else {
-    Serial.println( "UPDATE DOOR OFF");
+    Serial.println( "DOOR OFF");
     _ledRgbDoor->off();
   } 
 }
 
-// class bath
-// {
-// private:
-//   int state;
-//   door* bathDoor;
-// public:
-//   bath(door* bathDoor , int state = BATH_OFF){
-//     this->state = state;
-//   };
+//*************************************************
+// Class Bath
+//*************************************************
+// Bath Declarations
+class Bath
+{
+private:
+  int _state;
+  Door* _bathDoor;
+public:
+  Bath(Door* bathDoor , int state = BATH_OFF);
+  int getBathState();
+  void setBathState(int state);
+};
 
-//   int getBathState(){
-//     return this->state;
-//   }
+// Door Implementation
+Bath::Bath(Door* bathDoor , int state){
+  _bathDoor = bathDoor;
+  setBathState(state);
+  //_state = state;
+}
 
-//   void setBathState(int state){
-//     this->state = state;
-//     Serial.println(this->state);
-
-//     if (this->state == BATH_ON){
-//       bathDoor->setState(DOOR_UNLOCKED);
-//     } else {
-//       bathDoor->setState(DOOR_OFF);
-//     }
-//   }
-// };
-
+int Bath::getBathState(){
+  return _state;
+}
+void Bath::setBathState(int state){
+  _state = state;
+  if (_state == BATH_ON){
+    Serial.println("SMART BATH ON");
+    _bathDoor->setState(DOOR_UNLOCKED);
+  } else {
+    _bathDoor->setState(DOOR_OFF);
+    Serial.println("SMART BATH OFF");
+  }
+}
 void oneSensorCycle();
 void echoCheck();
 void readShower();
 
 LedRgb *LedRgbDoor;
 Door *DoorBath;
-//bath smartBath(&doorBath);
+Bath *SmartBath;
 
 void setup() {
 
   Serial.begin(9600);
   LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
   DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
-
-  timerSensorShower = millis();
+  SmartBath = new Bath(DoorBath);
+  // timerSensorShower = millis();
 
   //INPUTS
   pinMode(PIN_PIR_SHOWER, INPUT);
@@ -236,7 +238,6 @@ void setup() {
   LedRgbDoor->setup();
   LedRgbDoor->test();
   
-
   pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
   for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
     pingTimer[i] = pingTimer[i - 1] + PING_INTERVAL;
@@ -245,10 +246,12 @@ void setup() {
 void loop() {
   //LedRgbDoor->setColorRed();
   delay(5000);
-  DoorBath->setState(DOOR_UNLOCKED);
+  // DoorBath->setState(DOOR_UNLOCKED);
+  SmartBath->setBathState(BATH_ON);
   readShower();
   delay(5000);
-  DoorBath->setState(DOOR_LOCKED);
+  // DoorBath->setState(DOOR_LOCKED);
+  SmartBath->setBathState(BATH_OFF);
   delay(5000);
   //smartBath.setBathState(BATH_ON);
   //Serial.print("BATH STATE: ");
