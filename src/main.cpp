@@ -33,6 +33,9 @@ const bool led_rgb_door_anodo_comum = false;
 //#define MAX_DISTANCE_TOLIET 200
 
 unsigned long timerPingSonars;
+bool sonarEntryDetected;
+bool sonarExitDetected;
+int personStateMovement;
 
 enum bath_state{ BATH_OFF,
                  BATH_ON };
@@ -46,11 +49,17 @@ enum door_state{ DOOR_UNLOCKED = 1
                 ,DOOR_OFF = 3
 };
 
+enum state_movements{ WAITING,
+                      ENTERING,
+                      LEAVING
+};
+
 NewPing sonar[SONAR_NUM] = {     // Sensor object array.
   NewPing(TRIGGER_PIN_ENTRY, ECHO_PIN_ENTRY, MAX_DISTANCE_ENTRY), // Each sensor's trigger pin, echo pin, and max distance to ping.
   NewPing(TRIGGER_PIN_EXIT, ECHO_PIN_EXIT, MAX_DISTANCE_EXIT),
   NewPing(0, 0, MAX_DISTANCE_EXIT)
 };
+
 //*************************************************
 // Class LedRgb
 //*************************************************
@@ -187,15 +196,14 @@ class Bath
 private:
   int _state;
   Door* _bathDoor;
-  int _numberPeople;
-  bool _entering_1;
-  bool _entering_2;
-  bool _going_out_1;
-  bool _going_out_2;
+  int _numberPeople = 0;
 public:
   Bath(Door* bathDoor , int state = BATH_OFF);
   int getBathState();
   void setBathState(int state);
+  int getNumberPeople();
+  void addPerson();
+  void removePerson();
 };
 
 // Door Implementation
@@ -217,6 +225,29 @@ void Bath::setBathState(int state){
     _bathDoor->setState(DOOR_OFF);
     Serial.println("SMART BATH OFF");
   }
+
+}
+
+int Bath::getNumberPeople(){
+  return _numberPeople;
+}
+
+void Bath::addPerson(){
+  _numberPeople++;
+  Serial.print( "ADDED PEOPLE. TOTAL: ");
+  Serial.println(getNumberPeople());
+  if ( getBathState() == BATH_OFF){
+    setBathState(BATH_ON);
+  }
+}
+
+void Bath::removePerson(){
+  _numberPeople--;
+  Serial.print( "REMOVED PEOPLE. TOTAL: ");
+  Serial.println(getNumberPeople());
+  if ( getNumberPeople() == 0 && getBathState() == BATH_ON ){
+    setBathState(BATH_OFF);
+  }
 }
 
 void readShower();
@@ -233,6 +264,10 @@ void setup() {
   DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
   SmartBath = new Bath(DoorBath);
   timerPingSonars = millis();
+  sonarEntryDetected = false;
+  sonarExitDetected = false;
+  personStateMovement = WAITING;
+  
 
   //INPUTS
   pinMode(PIN_PIR_SHOWER, INPUT);
@@ -249,12 +284,21 @@ void loop() {
   //SmartBath->setBathState(BATH_OFF);
   readShower();
   readSonars();
+  Serial.print("NUMBER PEOPLE:            ");
+  Serial.print(SmartBath->getNumberPeople());
+  Serial.print( "         ");
+  Serial.print( sonarEntryDetected);
+  Serial.print( "         ");
+  Serial.print( sonarExitDetected);
+  Serial.print( "   STATE MOVMENT->");
+  Serial.print( personStateMovement);
+  Serial.print( "   BATH STATE->");
+  Serial.println( SmartBath->getBathState());
+
   //delay(1000);
   //SmartBath->setBathState(BATH_ON);
   //readShower();
   //delay(5000);
-
-
 }
 
 // SHOWER
@@ -272,11 +316,47 @@ void readShower(){
 void readSonars(){
   if (millis() - timerPingSonars > PING_INTERVAL_SONARS){
     for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through each sensor and display results.
-      //delay(50); // Wait 50ms between pings (about 20 pings/sec). 29ms should be the shortest delay between pings.
-      Serial.print(i);
-      Serial.print("=");
-      Serial.print(sonar[i].ping_cm());
-      Serial.print("cm ");
+      // Serial.print(i);
+      // Serial.print("=");
+      // Serial.print(sonar[i].ping_cm());
+      // Serial.print("cm ");
+      if (personStateMovement == WAITING){
+        if ( i == SONAR_ENTRY && sonar[i].ping_cm() > 0 ){
+          personStateMovement = ENTERING;
+          sonarEntryDetected = true;
+        }
+      }
+
+      if (personStateMovement == WAITING){
+        if ( i == SONAR_EXIT && sonar[i].ping_cm() > 0 ){
+          personStateMovement = LEAVING;
+          sonarExitDetected = true;
+        }
+      }
+
+      if ( personStateMovement == ENTERING ) {
+        if ( i == SONAR_EXIT && sonar[i].ping_cm() > 0 ){
+          sonarExitDetected = true;
+        }
+        if ( sonarEntryDetected && sonarExitDetected && i == SONAR_EXIT && sonar[i].ping_cm() == 0 ){
+            personStateMovement = WAITING;
+            sonarEntryDetected = false;
+            sonarExitDetected = false;
+            SmartBath->addPerson();
+        }
+      }
+
+      if (personStateMovement == LEAVING){
+        if ( i == SONAR_ENTRY && sonar[i].ping_cm() > 0  ){
+          sonarEntryDetected = true;
+        }
+        if ( sonarExitDetected && sonarEntryDetected && i == SONAR_ENTRY && sonar[i].ping_cm() == 0 ){
+            personStateMovement = WAITING;
+            sonarEntryDetected = false;
+            sonarExitDetected = false;
+            SmartBath->removePerson();
+        }
+      }
     }
     timerPingSonars = millis();
     Serial.println();
