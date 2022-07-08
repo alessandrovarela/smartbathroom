@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <NewPing.h>
+#include <LiquidCrystal_I2C.h>
 
 // SHOWER
 #define PIN_PIR_SHOWER 23
@@ -39,8 +41,15 @@ const bool led_rgb_door_anodo_comum = false;
 #define PIN_LED_TOILET 28
 #define DELAY_OFF_LED_TOILET 5000 // ms
 
-unsigned long timerPingSonars;
-unsigned long timerLedsSonars;
+
+// Display 1 Defitions
+// DEFINIÇÕES
+// set the LCD address to 0x27 for a 16 chars and 2 line display
+#define LCD_1_ADDRESS 0x27 
+#define LCD_1_COLUMNS 16
+#define LCD_1_LINES 2
+
+
 bool sonarEntryDetected;
 bool sonarExitDetected;
 int personStateMovement;
@@ -304,7 +313,7 @@ void Bath::removePerson(){
 void Bath::check(){
   if (_state == BATH_OFF)
   {
-    if (isShowerOn)
+    if (isShowerOn || isToiletOn)
     {
       reset(1);
     }
@@ -317,13 +326,14 @@ void Bath::reset( int numberPeople ){
   resetSonars();
 }
 
-
 LedRgb *LedRgbDoor;
 Door *DoorBath;
 Bath *SmartBath;
 DelayMillis *DelayMovements;
 DelayMillis *WaitingResetSonars;
 DelayMillis *DelayOffLedToilet;
+
+LiquidCrystal_I2C lcd1(LCD_1_ADDRESS, LCD_1_COLUMNS, LCD_1_LINES);
 
 void setup() {
 
@@ -342,24 +352,30 @@ void setup() {
   DelayMovements = new DelayMillis(1000);
   WaitingResetSonars = new DelayMillis(TIMER_WAIT_RESET_SONARS);
   DelayOffLedToilet = new DelayMillis(DELAY_OFF_LED_TOILET);
-  timerPingSonars = millis();
-  timerLedsSonars = millis();
 
   sonarEntryDetected = false;
   sonarExitDetected = false;
   personStateMovement = WAITING;
   isShowerOn = false;
+  isToiletOn = false;
   
   LedRgbDoor->setup();
   LedRgbDoor->test();
-  
-  //pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
-  //for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
-  //  pingTimer[i] = pingTimer[i - 1] + PING_INTERVAL;
 
+  lcd1.init(); // start comunication with display
+  lcd1.backlight(); // Turno on backlight
+  lcd1.clear(); // clear display
+
+  lcd1.print("-SMART BATHROOM-");
+  delay(2000);
+  //lcd1.noBacklight(); 
+  lcd1.setCursor(0, 1); // set cursor primary column and line 2
+  //lcd1.scrollDisplayLeft();
+  lcd1.print("SETUP COMPLETED");
+  //lcd1.autoscroll();
+  delay(2000); // DELAY DE 5 SEGUNDOS 
 }
 void loop() {
-  //SmartBath->setBathState(BATH_OFF);
   readShower();
   readSonars();
   Serial.print("              NUMBER PEOPLE:");
@@ -375,10 +391,7 @@ void loop() {
   Serial.print( "  IS FINISHED->");
   Serial.println( DelayOffLedToilet->isFinished());
   //SmartBath->check();
-  //delay(1000);
-  //SmartBath->setBathState(BATH_ON);
-  //readShower();
-  //delay(5000);
+
 }
 
 // SHOWER
@@ -407,7 +420,6 @@ void checkSonars(){
 
 void readSonars(){
     
-  //if (millis() - timerPingSonars > PING_INTERVAL_SONARS){
     checkSonars();
     for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through each sensor and display results.
       Serial.print(i);
@@ -457,25 +469,17 @@ void readSonars(){
       }
 
       if (i == SONAR_TOILET && sonar[i].ping_cm() > 0 ){   
-            digitalWrite ( PIN_LED_TOILET, HIGH );
-            DelayOffLedToilet->start(); 
+        digitalWrite ( PIN_LED_TOILET, HIGH );
+        isToiletOn = true;
+        DelayOffLedToilet->start(); 
       }
 
       if (i == SONAR_TOILET && sonar[i].ping_cm() == 0 && DelayOffLedToilet->isFinished() ){   
-            digitalWrite ( PIN_LED_TOILET, LOW );
+        digitalWrite ( PIN_LED_TOILET, LOW );
+        isToiletOn = false;
       }
-
-
-       //else {
-          //if (DelayOffLedToilet->isFinished()){
-          //  digitalWrite ( PIN_LED_TOILET, LOW );
-         //    DelayOffLedToilet->start();
-         // }
-      //}
     }
-    //timerPingSonars = millis();
     Serial.println();
-  //}
 }
 
 void resetSonars(){
@@ -483,4 +487,3 @@ void resetSonars(){
   sonarEntryDetected = false;
   sonarExitDetected = false;
 }
-
