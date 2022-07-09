@@ -84,11 +84,51 @@ void readShower();
 void readSonars();
 void resetSonars();
 
+class Stopwatch
+{
+  private:
+    unsigned long _startms, _sectotal; 
+    int _hours, _min, _sec = 0; 
+  public:
+    Stopwatch();
+    void reset();
+    void update();
+    void convert(long sectotal);
+    String show();
+};
+
+Stopwatch::Stopwatch(){}
+
+void Stopwatch::reset(){
+  _hours = 0;
+  _min = 0;
+  _sec = 0;
+  _startms = millis();
+}
+void Stopwatch::update(){
+  _sectotal = ((millis()-_startms)/1000);
+}
+void Stopwatch::convert(long sectotal){
+  int r = 0 ;
+  _hours = sectotal / 3600;
+  r = sectotal % 3600;
+  _min = r / 60;
+  _sec = r % 60;
+}
+String Stopwatch::show(){
+  update();
+  convert(_sectotal);
+  String stopwatch;
+  stopwatch = (_hours < 10 ? "0" :"" ) + String(_hours) + ":";
+  stopwatch += (_min < 10 ? "0" : "" )+ String(_min) + ":";
+  stopwatch += (_sec  <  10 ? "0" : "") + String(_sec);
+   return stopwatch;
+ }
+
 //*************************************************
 // Class DelayMillis
 //*************************************************
 // DelayMillis Declarations
-
 class DelayMillis
 {
 private:
@@ -254,9 +294,11 @@ class Bath
 private:
   int _state;
   Door* _bathDoor;
+  Stopwatch* _stopwatch;
+  LiquidCrystal_I2C* _lcd1;
   int _numberPeople = 0;
 public:
-  Bath(Door* bathDoor , int state = BATH_OFF);
+  Bath(Door* bathDoor, Stopwatch* watch, LiquidCrystal_I2C* lcd1, int state = BATH_OFF);
   int getBathState();
   void setBathState(int state);
   int getNumberPeople();
@@ -264,13 +306,16 @@ public:
   void removePerson();
   void check();
   void reset( int numberPeople = 1);
+  void showDisplayExtenal( LiquidCrystal_I2C* lcd , Stopwatch* watch, bool resetWatch = true);
+  void turnOffDisplayExternal(LiquidCrystal_I2C* lcd);
 };
 
 // Door Implementation
-Bath::Bath(Door* bathDoor , int state){
+Bath::Bath(Door* bathDoor, Stopwatch* watch, LiquidCrystal_I2C* lcd1, int state){
   _bathDoor = bathDoor;
+  _stopwatch = watch;
+  _lcd1 = lcd1;
   setBathState(state);
-  //_state = state;
 }
 
 int Bath::getBathState(){
@@ -281,8 +326,10 @@ void Bath::setBathState(int state){
   if (_state == BATH_ON){
     Serial.println("SMART BATH ON");
     _bathDoor->setState(DOOR_UNLOCKED);
+    showDisplayExtenal( _lcd1, _stopwatch, true);
   } else {
     _bathDoor->setState(DOOR_OFF);
+    turnOffDisplayExternal(_lcd1);
     Serial.println("SMART BATH OFF");
   }
 
@@ -315,15 +362,35 @@ void Bath::check(){
   {
     if (isShowerOn || isToiletOn)
     {
-      reset(1);
+      // reset(1);
     }
-  } 
+  } else
+  {
+    showDisplayExtenal(_lcd1, _stopwatch, false);
+  }
+
 }
 
 void Bath::reset( int numberPeople ){
   setBathState( BATH_ON );
   _numberPeople = numberPeople;
   resetSonars();
+  showDisplayExtenal( _lcd1, _stopwatch, true );
+}
+
+void Bath::showDisplayExtenal( LiquidCrystal_I2C* lcd , Stopwatch* watch, bool resetWatch){
+  // lcd->clear();
+  if (resetWatch) { watch->reset(); };
+  lcd->backlight();
+  lcd->setCursor(0,0);
+  lcd->print( watch->show() );
+  lcd->setCursor(0, 1);
+  lcd->print( "Pessoas: " );
+  lcd->print( getNumberPeople() );
+  lcd->print("     ");
+}
+void Bath::turnOffDisplayExternal(LiquidCrystal_I2C* lcd){
+  lcd->noBacklight();
 }
 
 LedRgb *LedRgbDoor;
@@ -332,6 +399,7 @@ Bath *SmartBath;
 DelayMillis *DelayMovements;
 DelayMillis *WaitingResetSonars;
 DelayMillis *DelayOffLedToilet;
+Stopwatch *Stopwatch1;
 
 LiquidCrystal_I2C lcd1(LCD_1_ADDRESS, LCD_1_COLUMNS, LCD_1_LINES);
 
@@ -348,7 +416,8 @@ void setup() {
  
   LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
   DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
-  SmartBath = new Bath(DoorBath);
+  Stopwatch1 = new Stopwatch();
+  SmartBath = new Bath(DoorBath, Stopwatch1, &lcd1);
   DelayMovements = new DelayMillis(1000);
   WaitingResetSonars = new DelayMillis(TIMER_WAIT_RESET_SONARS);
   DelayOffLedToilet = new DelayMillis(DELAY_OFF_LED_TOILET);
@@ -367,17 +436,20 @@ void setup() {
   lcd1.clear(); // clear display
 
   lcd1.print("-SMART BATHROOM-");
-  delay(2000);
+  //delay(2000);
   //lcd1.noBacklight(); 
   lcd1.setCursor(0, 1); // set cursor primary column and line 2
   //lcd1.scrollDisplayLeft();
   lcd1.print("SETUP COMPLETED");
-  //lcd1.autoscroll();
-  delay(2000); // DELAY DE 5 SEGUNDOS 
+  delay(2000); 
+  lcd1.noBacklight();
+  lcd1.clear();
 }
 void loop() {
+  //stopwatch->start();
   readShower();
   readSonars();
+  SmartBath->check();
   Serial.print("              NUMBER PEOPLE:");
   Serial.print(SmartBath->getNumberPeople());
   Serial.print( "  SONAR_ENTRY:");
@@ -388,10 +460,8 @@ void loop() {
   Serial.print( personStateMovement);
   Serial.print( "  BATH STATE->");
   Serial.print( SmartBath->getBathState());
-  Serial.print( "  IS FINISHED->");
-  Serial.println( DelayOffLedToilet->isFinished());
-  //SmartBath->check();
-
+  Serial.print( "  STOPWATCH->");
+  Serial.println( Stopwatch1->show());
 }
 
 // SHOWER
