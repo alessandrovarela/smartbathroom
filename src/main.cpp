@@ -3,6 +3,8 @@
 #include <NewPing.h>
 #include <LiquidCrystal_I2C.h>
 #include <VarSpeedServo.h>
+#include <TonePlayer.h>
+
 
 
 // Servo Locker
@@ -11,6 +13,7 @@
 #define ANGLE_DOOR_UNLOCKED 0
 #define LOCK_SPEED 40
 #define PIN_PUSH_BUTTON_DOOR1 27
+#define PIN_BUZZER 5
 
 
 // SHOWER
@@ -269,21 +272,24 @@ class Door
     DelayMillis *DelayDebounce;
     LedRgb* _ledRgbDoor;
     VarSpeedServo* _servo;
+    TonePlayer* _tonePlayer;
     int _state;
   public:
-    Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, int doorState = DOOR_OFF);
+    Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, TonePlayer* tonePlayer, int doorState = DOOR_OFF);
     void lock();
     void unlock();
     void setState( int state );
      int getState();
+    void playSoundUnlock();
     void checkButtons();
     void check();
 };
 
 // Door Implementation
-Door::Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, int doorState){
+Door::Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, TonePlayer* tonePlayer, int doorState){
   _ledRgbDoor = ledRgbDoor;
   _servo = servo;
+  _tonePlayer = tonePlayer;
   _state = doorState;
   DelayDebounce = new DelayMillis(50);
 }
@@ -308,6 +314,18 @@ void Door::setState( int state ){
 int Door::getState(){
   return _state;
 }
+void Door::playSoundUnlock(){
+  //tone1.tone (220);  // 220 Hz
+  //delay (500);
+  //tone1.noTone ();
+
+  //tone1.tone (440);
+  //delay (500);
+  //tone1.noTone ();
+  _tonePlayer->tone(880);
+  delay (200);
+  _tonePlayer->noTone();
+}
 
 void Door::checkButtons(){
 
@@ -323,25 +341,24 @@ void Door::checkButtons(){
       }
     }
   }
-
-
-
 }
 
 void Door::check(){
 
-  if (_servo->read() == ANGLE_DOOR_LOCKED && isSmarthBathOn ){
+  if (_servo->read() == ANGLE_DOOR_LOCKED && isSmarthBathOn && getState() != DOOR_LOCKED){
     setState(DOOR_LOCKED);
     _ledRgbDoor->setColorRed();
     Serial.println( "DOOR LOCKED");
     _servo->detach();
   }
 
-  if (_servo->read() == ANGLE_DOOR_UNLOCKED && isSmarthBathOn  ){
+  if (_servo->read() == ANGLE_DOOR_UNLOCKED && isSmarthBathOn && getState() != DOOR_UNLOCKED ){
     setState(DOOR_UNLOCKED);
     _ledRgbDoor->setColorGreen();
     Serial.println( "DOOR UNLOCKED");
     _servo->detach();
+    playSoundUnlock();
+
   } 
   
   if (!isSmarthBathOn){
@@ -475,6 +492,7 @@ Stopwatch *Stopwatch1;
 
 LiquidCrystal_I2C lcd1(LCD_1_ADDRESS, LCD_1_COLUMNS, LCD_1_LINES);
 VarSpeedServo servoLocker;
+TonePlayer tone1 (TCCR3A, TCCR3B, OCR3AH, OCR3AL, TCNT3H, TCNT3L);  // pin D5 MEGA 2560
 
 void setup() {
 
@@ -487,9 +505,10 @@ void setup() {
   //OUTPUTS
   pinMode(LED_SHOWER, OUTPUT);
   pinMode(PIN_LED_TOILET, OUTPUT);
- 
+  pinMode(PIN_BUZZER, OUTPUT);
+
   LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
-  DoorBath = new Door(LedRgbDoor, &servoLocker, DOOR_UNLOCKED);
+  DoorBath = new Door(LedRgbDoor, &servoLocker, &tone1, DOOR_UNLOCKED);
   Stopwatch1 = new Stopwatch();
   SmartBath = new Bath(DoorBath, Stopwatch1, &lcd1);
   DelayMovements = new DelayMillis(DELAY_MOVEMENT);
@@ -522,7 +541,9 @@ void setup() {
   delay(2000); 
   lcd1.noBacklight();
   lcd1.clear();
-  
+
+  //tone(PIN_BUZZER,1000,100);
+  //tone(speaker, 440,1000);
   //DoorBath->lock();
   //delay(5000);
   //DoorBath->unlock();
@@ -558,8 +579,8 @@ void loop() {
   Serial.print( "  STOPWATCH->");
   Serial.println( Stopwatch1->show());
 
-  Serial.print( "PUSH BUTTON 1->");
-  Serial.println(digitalRead(PIN_PUSH_BUTTON_DOOR1));
+  //Serial.print( "PUSH BUTTON 1->");
+  //Serial.println(digitalRead(PIN_PUSH_BUTTON_DOOR1));
   
 }
 
