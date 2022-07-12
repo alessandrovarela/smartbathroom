@@ -2,11 +2,20 @@
 #include <Wire.h>
 #include <NewPing.h>
 #include <LiquidCrystal_I2C.h>
+#include <VarSpeedServo.h>
+
+
+// Servo Locker
+#define PIN_SERVO_LOCKER 9
+#define ANGLE_DOOR_LOCKED 90
+#define ANGLE_DOOR_UNLOCKED 0
+#define LOCK_SPEED 40
+#define PIN_PUSH_BUTTON_DOOR1 27
+
 
 // SHOWER
 #define PIN_PIR_SHOWER 23
 #define LED_SHOWER 13
-
 
 // RGB DOOR
 const bool led_rgb_door_anodo_comum = false;
@@ -29,8 +38,8 @@ const bool led_rgb_door_anodo_comum = false;
 #define MAX_DISTANCE_ENTRY 60 // Maximum distance (in cm) to ping.
 
 // sonar exit
-#define TRIGGER_PIN_EXIT 27
-#define ECHO_PIN_EXIT 29
+#define TRIGGER_PIN_EXIT 33
+#define ECHO_PIN_EXIT 35
 #define MAX_DISTANCE_EXIT 60 // Maximum distance (in cm) to ping.
 
 // sonar toilet
@@ -55,6 +64,7 @@ bool sonarExitDetected;
 int personStateMovement;
 bool isShowerOn;
 bool isToiletOn;
+bool isSmarthBathOn = false;
 
 enum bath_state{ BATH_OFF,
                  BATH_ON };
@@ -63,9 +73,11 @@ enum sonars {  SONAR_ENTRY
               ,SONAR_EXIT
               ,SONAR_TOILET };
 
-enum door_state{ DOOR_UNLOCKED = 1
-                ,DOOR_LOCKED = 2
-                ,DOOR_OFF = 3
+enum door_state{ DOOR_LOCKING
+                ,DOOR_UNLONCKING
+                ,DOOR_UNLOCKED
+                ,DOOR_LOCKED
+                ,DOOR_OFF
 };
 
 enum state_movements{ WAITING,
@@ -92,7 +104,7 @@ class Stopwatch
   public:
     Stopwatch();
     void reset();
-    void update();
+    void updateStopwatch();
     void convert(long sectotal);
     String show();
 };
@@ -104,8 +116,9 @@ void Stopwatch::reset(){
   _min = 0;
   _sec = 0;
   _startms = millis();
+  Serial.println( "STOPWATCH RESETED");
 }
-void Stopwatch::update(){
+void Stopwatch::updateStopwatch(){
   _sectotal = ((millis()-_startms)/1000);
 }
 void Stopwatch::convert(long sectotal){
@@ -116,13 +129,13 @@ void Stopwatch::convert(long sectotal){
   _sec = r % 60;
 }
 String Stopwatch::show(){
-  update();
+  updateStopwatch();
   convert(_sectotal);
   String stopwatch;
   stopwatch = (_hours < 10 ? "0" :"" ) + String(_hours) + ":";
   stopwatch += (_min < 10 ? "0" : "" )+ String(_min) + ":";
   stopwatch += (_sec  <  10 ? "0" : "") + String(_sec);
-   return stopwatch;
+  return stopwatch;
  }
 
 //*************************************************
@@ -253,36 +266,89 @@ void LedRgb::off(){
 class Door
 {
   private:
-    LedRgb *_ledRgbDoor;
+    DelayMillis *DelayDebounce;
+    LedRgb* _ledRgbDoor;
+    VarSpeedServo* _servo;
     int _state;
   public:
-    Door( LedRgb* ledRgbDoor , int doorState = DOOR_OFF);
+    Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, int doorState = DOOR_OFF);
+    void lock();
+    void unlock();
     void setState( int state );
-    void update();
+     int getState();
+    void checkButtons();
+    void check();
 };
 
 // Door Implementation
-Door::Door( LedRgb* ledRgbDoor , int doorState){
+Door::Door( LedRgb* ledRgbDoor, VarSpeedServo* servo, int doorState){
   _ledRgbDoor = ledRgbDoor;
+  _servo = servo;
   _state = doorState;
+  DelayDebounce = new DelayMillis(50);
+}
+
+
+void Door::lock(){
+  _servo->attach(PIN_SERVO_LOCKER);
+  _servo->slowmove(ANGLE_DOOR_LOCKED,LOCK_SPEED);
+  setState(DOOR_LOCKING);
+}
+
+void Door::unlock(){
+    _servo->attach(PIN_SERVO_LOCKER);
+    _servo->slowmove(ANGLE_DOOR_UNLOCKED,LOCK_SPEED);
+    setState(DOOR_UNLONCKING);
 }
 
 void Door::setState( int state ){
   _state = state;
-  this->update();
 }
-void Door::update(){
-  if (_state == DOOR_UNLOCKED){
-    Serial.println( "DOOR UNLOCKED");
-    _ledRgbDoor->setColorGreen();
-  } else if (_state == DOOR_LOCKED)
-  {
-    Serial.println( "DOOR LOCKED");
+
+int Door::getState(){
+  return _state;
+}
+
+void Door::checkButtons(){
+
+  if ( DelayDebounce->isFinished() ){
+    if ( !digitalRead(PIN_PUSH_BUTTON_DOOR1)){
+      if ( getState() == DOOR_UNLOCKED){
+        lock();
+        DelayDebounce->start();
+      }
+      if ( getState() == DOOR_LOCKED){
+        unlock();
+        DelayDebounce->start();
+      }
+    }
+  }
+
+
+
+}
+
+void Door::check(){
+
+  if (_servo->read() == ANGLE_DOOR_LOCKED && isSmarthBathOn ){
+    setState(DOOR_LOCKED);
     _ledRgbDoor->setColorRed();
-  } else {
-    Serial.println( "DOOR OFF");
-    _ledRgbDoor->off();
+    Serial.println( "DOOR LOCKED");
+    _servo->detach();
+  }
+
+  if (_servo->read() == ANGLE_DOOR_UNLOCKED && isSmarthBathOn  ){
+    setState(DOOR_UNLOCKED);
+    _ledRgbDoor->setColorGreen();
+    Serial.println( "DOOR UNLOCKED");
+    _servo->detach();
   } 
+  
+  if (!isSmarthBathOn){
+    _ledRgbDoor->off();
+    Serial.println( "DOOR OFF");
+  } 
+  checkButtons();
 }
 
 //*************************************************
@@ -325,7 +391,7 @@ void Bath::setBathState(int state){
   _state = state;
   if (_state == BATH_ON){
     Serial.println("SMART BATH ON");
-    _bathDoor->setState(DOOR_UNLOCKED);
+    _bathDoor->unlock();
     showDisplayExtenal( _lcd1, _stopwatch, true);
   } else {
     _bathDoor->setState(DOOR_OFF);
@@ -362,12 +428,17 @@ void Bath::check(){
   {
     if (isShowerOn || isToiletOn)
     {
-      // reset(1);
+      //reset(1);
     }
-  } else
-  {
-    showDisplayExtenal(_lcd1, _stopwatch, false);
+    isSmarthBathOn = false;
+  } 
+
+  if (getBathState() == BATH_ON ){
+    isSmarthBathOn = true;
+    showDisplayExtenal( _lcd1, _stopwatch, false);
   }
+
+  _bathDoor->check();
 
 }
 
@@ -399,34 +470,41 @@ Bath *SmartBath;
 DelayMillis *DelayMovements;
 DelayMillis *WaitingResetSonars;
 DelayMillis *DelayOffLedToilet;
+
 Stopwatch *Stopwatch1;
 
 LiquidCrystal_I2C lcd1(LCD_1_ADDRESS, LCD_1_COLUMNS, LCD_1_LINES);
+VarSpeedServo servoLocker;
 
 void setup() {
 
   Serial.begin(9600);
-  
+
    //INPUTS
   pinMode(PIN_PIR_SHOWER, INPUT);
+  pinMode(PIN_PUSH_BUTTON_DOOR1, INPUT_PULLUP);
 
   //OUTPUTS
   pinMode(LED_SHOWER, OUTPUT);
   pinMode(PIN_LED_TOILET, OUTPUT);
  
   LedRgbDoor = new LedRgb(PIN_RGB_DOOR_R , PIN_RGB_DOOR_G, PIN_RGB_DOOR_B, led_rgb_door_anodo_comum);
-  DoorBath = new Door(LedRgbDoor, DOOR_UNLOCKED);
+  DoorBath = new Door(LedRgbDoor, &servoLocker, DOOR_UNLOCKED);
   Stopwatch1 = new Stopwatch();
   SmartBath = new Bath(DoorBath, Stopwatch1, &lcd1);
-  DelayMovements = new DelayMillis(1000);
+  DelayMovements = new DelayMillis(DELAY_MOVEMENT);
   WaitingResetSonars = new DelayMillis(TIMER_WAIT_RESET_SONARS);
   DelayOffLedToilet = new DelayMillis(DELAY_OFF_LED_TOILET);
+  
 
   sonarEntryDetected = false;
   sonarExitDetected = false;
   personStateMovement = WAITING;
   isShowerOn = false;
   isToiletOn = false;
+
+  //servoLocker.attach(PIN_SERVO_LOCKER);
+
   
   LedRgbDoor->setup();
   LedRgbDoor->test();
@@ -444,6 +522,23 @@ void setup() {
   delay(2000); 
   lcd1.noBacklight();
   lcd1.clear();
+  
+  //DoorBath->lock();
+  //delay(5000);
+  //DoorBath->unlock();
+  //delay(5000);
+
+  //servoLocker.slowmove(0,40);
+ // servoLocker.write(0);
+ // delay(2000);
+ // Serial.print("READ SERVER LOCKER->");
+ // Serial.println(servoLocker.read());
+ // delay(5000);
+ // servoLocker.write(90);
+ // Serial.print("READ SERVER LOCKER->");
+ // Serial.println(servoLocker.read());
+ // delay(5000);
+
 }
 void loop() {
   //stopwatch->start();
@@ -462,6 +557,10 @@ void loop() {
   Serial.print( SmartBath->getBathState());
   Serial.print( "  STOPWATCH->");
   Serial.println( Stopwatch1->show());
+
+  Serial.print( "PUSH BUTTON 1->");
+  Serial.println(digitalRead(PIN_PUSH_BUTTON_DOOR1));
+  
 }
 
 // SHOWER
