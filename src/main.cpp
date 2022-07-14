@@ -60,13 +60,15 @@ const bool led_rgb_door_anodo_comum = false;
 #define LCD_1_ADDRESS 0x27 
 #define LCD_1_COLUMNS 16
 #define LCD_1_LINES 2
-
+#define DELAY_MESSAGE_DISPLAY 2000 // ms
 
 bool sonarEntryDetected;
 bool sonarExitDetected;
-int personStateMovement;
+ int personStateMovement;
 bool isShowerOn;
 bool isToiletOn;
+bool isDoorlocked;
+bool isAnySensorDetected;
 bool isSmarthBathOn = false;
 
 enum bath_state{ BATH_OFF,
@@ -83,10 +85,17 @@ enum door_state{ DOOR_LOCKING
                 ,DOOR_OFF
 };
 
+enum  messages{ MSG_DOOR_LOCKED
+               ,MSG_DOOR_UNLOCKED
+};
+
 enum state_movements{ WAITING,
                       ENTERING,
                       LEAVING
 };
+
+
+
 
 NewPing sonar[SONAR_NUM] = {     // Sensor object array.
   NewPing(TRIGGER_PIN_ENTRY, ECHO_PIN_ENTRY, MAX_DISTANCE_ENTRY), // Each sensor's trigger pin, echo pin, and max distance to ping.
@@ -98,6 +107,41 @@ void checkSonars();
 void readShower();
 void readSonars();
 void resetSonars();
+void showMessageDisplay1( int message );
+
+//*************************************************
+// Class DelayMillis
+//*************************************************
+// DelayMillis Declarations
+class DelayMillis
+{
+private:
+  unsigned long _ms;
+  unsigned long timerDelayMillis; 
+public:
+  DelayMillis(unsigned long = 500);
+  void start();
+  bool isFinished();
+};
+
+// DelayMillis Implementation
+DelayMillis::DelayMillis(unsigned long ms)
+{
+  _ms = ms;
+  start();
+}
+
+void DelayMillis::start()
+{
+  timerDelayMillis = millis();
+}
+
+bool DelayMillis::isFinished()
+{
+  return millis() - timerDelayMillis > _ms;
+}
+
+DelayMillis *DelayShowMessageDisplay;
 
 class Stopwatch
 {
@@ -140,38 +184,6 @@ String Stopwatch::show(){
   stopwatch += (_sec  <  10 ? "0" : "") + String(_sec);
   return stopwatch;
  }
-
-//*************************************************
-// Class DelayMillis
-//*************************************************
-// DelayMillis Declarations
-class DelayMillis
-{
-private:
-  unsigned long _ms;
-  unsigned long timerDelayMillis; 
-public:
-  DelayMillis(unsigned long = 500);
-  void start();
-  bool isFinished();
-};
-
-// DelayMillis Implementation
-DelayMillis::DelayMillis(unsigned long ms)
-{
-  _ms = ms;
-  start();
-}
-
-void DelayMillis::start()
-{
-  timerDelayMillis = millis();
-}
-
-bool DelayMillis::isFinished()
-{
-  return millis() - timerDelayMillis > _ms;
-}
 
 
 //*************************************************
@@ -328,7 +340,6 @@ void Door::playSoundUnlock(){
 }
 
 void Door::checkButtons(){
-
   if ( DelayDebounce->isFinished() ){
     if ( !digitalRead(PIN_PUSH_BUTTON_DOOR1)){
       if ( getState() == DOOR_UNLOCKED){
@@ -339,28 +350,29 @@ void Door::checkButtons(){
         unlock();
         DelayDebounce->start();
       }
+      isAnySensorDetected = true;
     }
   }
 }
 
 void Door::check(){
-
-  if (_servo->read() == ANGLE_DOOR_LOCKED && isSmarthBathOn && getState() != DOOR_LOCKED){
+  if (_servo->read() == ANGLE_DOOR_LOCKED && getState() != DOOR_LOCKED){
     setState(DOOR_LOCKED);
     _ledRgbDoor->setColorRed();
-    Serial.println( "DOOR LOCKED");
     _servo->detach();
+    isDoorlocked = false;
+    Serial.println( "DOOR LOCKED");
   }
 
-  if (_servo->read() == ANGLE_DOOR_UNLOCKED && isSmarthBathOn && getState() != DOOR_UNLOCKED ){
+  if (_servo->read() == ANGLE_DOOR_UNLOCKED && getState() != DOOR_UNLOCKED ){
     setState(DOOR_UNLOCKED);
     _ledRgbDoor->setColorGreen();
-    Serial.println( "DOOR UNLOCKED");
     _servo->detach();
     playSoundUnlock();
-
+    isDoorlocked = false;
+    showMessageDisplay1(MSG_DOOR_UNLOCKED);
+    Serial.println( "DOOR UNLOCKED");
   } 
-  
   if (!isSmarthBathOn){
     _ledRgbDoor->off();
     Serial.println( "DOOR OFF");
@@ -382,9 +394,9 @@ private:
   int _numberPeople = 0;
 public:
   Bath(Door* bathDoor, Stopwatch* watch, LiquidCrystal_I2C* lcd1, int state = BATH_OFF);
-  int getBathState();
+   int getBathState();
   void setBathState(int state);
-  int getNumberPeople();
+   int getNumberPeople();
   void addPerson();
   void removePerson();
   void check();
@@ -443,7 +455,7 @@ void Bath::removePerson(){
 void Bath::check(){
   if (_state == BATH_OFF)
   {
-    if (isShowerOn || isToiletOn)
+    if (isAnySensorDetected)
     {
       //reset(1);
     }
@@ -469,13 +481,16 @@ void Bath::reset( int numberPeople ){
 void Bath::showDisplayExtenal( LiquidCrystal_I2C* lcd , Stopwatch* watch, bool resetWatch){
   // lcd->clear();
   if (resetWatch) { watch->reset(); };
-  lcd->backlight();
-  lcd->setCursor(0,0);
-  lcd->print( watch->show() );
-  lcd->setCursor(0, 1);
-  lcd->print( "Pessoas: " );
-  lcd->print( getNumberPeople() );
-  lcd->print("     ");
+  if (DelayShowMessageDisplay->isFinished()){
+    lcd->backlight();
+    lcd->setCursor(0,0);
+    lcd->print( watch->show() );
+    lcd->print("        ");
+    lcd->setCursor(0, 1);
+    lcd->print( "Pessoas: " );
+    lcd->print( getNumberPeople() );
+    lcd->print("     ");
+  }
 }
 void Bath::turnOffDisplayExternal(LiquidCrystal_I2C* lcd){
   lcd->noBacklight();
@@ -514,6 +529,7 @@ void setup() {
   DelayMovements = new DelayMillis(DELAY_MOVEMENT);
   WaitingResetSonars = new DelayMillis(TIMER_WAIT_RESET_SONARS);
   DelayOffLedToilet = new DelayMillis(DELAY_OFF_LED_TOILET);
+  DelayShowMessageDisplay = new DelayMillis(DELAY_MESSAGE_DISPLAY);
   
 
   sonarEntryDetected = false;
@@ -521,6 +537,8 @@ void setup() {
   personStateMovement = WAITING;
   isShowerOn = false;
   isToiletOn = false;
+  isDoorlocked = false;
+  isAnySensorDetected = false;
 
   //servoLocker.attach(PIN_SERVO_LOCKER);
 
@@ -589,6 +607,7 @@ void readShower(){
     if ( digitalRead(PIN_PIR_SHOWER) ){
       digitalWrite(LED_SHOWER,HIGH);
       isShowerOn = true;
+      isAnySensorDetected = true;
       Serial.println( "PRESENCE DETECTED IN SHOWER"); 
     }
     else
@@ -661,6 +680,7 @@ void readSonars(){
       if (i == SONAR_TOILET && sonar[i].ping_cm() > 0 ){   
         digitalWrite ( PIN_LED_TOILET, HIGH );
         isToiletOn = true;
+        isAnySensorDetected = true;
         DelayOffLedToilet->start(); 
       }
 
@@ -676,4 +696,20 @@ void resetSonars(){
   personStateMovement = WAITING;
   sonarEntryDetected = false;
   sonarExitDetected = false;
+}
+
+void showMessageDisplay1( int message ){
+
+  DelayShowMessageDisplay->start();
+  switch (message)
+  {
+    case MSG_DOOR_UNLOCKED:
+      lcd1.setCursor(0, 0);
+      lcd1.print("     PORTA      ");
+      lcd1.setCursor(0, 1);
+      lcd1.print("   DESTRAVADA   ");
+      break;  
+    default:
+      break;
+  }
 }
